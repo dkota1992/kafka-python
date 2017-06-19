@@ -702,12 +702,23 @@ class BrokerConnection(object):
     def _process_response(self, read_buffer):
         assert not self._processing, 'Recursion not supported'
         self._processing = True
-        ifr = self.in_flight_requests.popleft()
+        recv_correlation_id = Int32.decode(read_buffer)
+
+        if not self.in_flight_requests:
+            error = Errors.CorrelationIdError(
+                '%s: No in-flight-request found for server response'
+                ' with correlation ID %d'
+                % (self, recv_correlation_id))
+            self.close(error)
+            self._processing = False
+            return None
+        else:
+            ifr = self.in_flight_requests.popleft()
+
         if self._sensors:
             self._sensors.request_time.record((time.time() - ifr.timestamp) * 1000)
 
         # verify send/recv correlation ids match
-        recv_correlation_id = Int32.decode(read_buffer)
 
         # 0.8.2 quirk
         if (self.config['api_version'] == (0, 8, 2) and
